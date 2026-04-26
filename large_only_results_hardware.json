@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-04-25T18:19:31.750190Z",
+  "python_platform": "macOS-26.3.1-arm64-arm-64bit-Mach-O",
+  "cpu_model": "Apple M4",
+  "physical_cores": "10",
+  "logical_cores": "10",
+  "cache_info": "L1d=65536B  L2=4194304B  L3=N/AB"
+}
