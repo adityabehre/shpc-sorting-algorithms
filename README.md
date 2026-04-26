@@ -5,7 +5,7 @@ Benchmarks measure execution time, memory usage, and comparison counts across va
 
 ## Getting Started: Compiling and Running the Project
 
-To recreate this experiment, you must prepare the environment, compile the C++ source code, and run the Python scripts to generate the data and graphs.
+The dataset is already included in `small-benchmark-dataset/`, so the only steps needed are installing prerequisites, compiling the C++ code, and running the benchmark and graphing scripts.
 
 ### Prerequisites
 
@@ -29,16 +29,9 @@ make
 
 This compiles the executables with `-O3` and `-march=native` optimizations. The code should be compiled on the same machine used for benchmarking.
 
-### 2. Generate the Datasets
+### 2. Run the Benchmarks
 
-Generate the smaller test datasets across the distributions (up to 1 million elements) by running:
-
-```bash
-python3 generate_small_dataset.py --seed 42
-```
-A fixed seed (`--seed 42`) is used to ensure the datasets are reproducible.
-
-### 3. Run the Benchmarks
+> **Note:** The committed `benchmark_results.csv` and graphs in `graphs/` come from a larger 10M-element run. Running the command below will overwrite the CSV with smaller-scale results.
 
 Execute the main benchmarking script on the small dataset to test the sorting algorithms and record execution time, memory usage, and comparison counts.
 
@@ -47,7 +40,7 @@ python3 benchmark.py --dataset_dir small-benchmark-dataset --runs 5 --warmup 1 -
 ```
 This performs 5 measured runs per configuration and records the median to mitigate OS-level variations. Results are saved to `benchmark_results.csv`.
 
-### 4. Graph the Results
+### 3. Graph the Results
 
 Generate visualizations of the performance data and Amdahl's Law speedup curves by running:
 

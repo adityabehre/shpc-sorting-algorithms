@@ -12,7 +12,7 @@
 
 \title{Correctness and Performance Analysis of Parallel Sorting Algorithms}
 \author{Akshat Rohella \and Aaron Johnson \and Aditya Behre}
-\date{April 2026}
+\date{April 26, 2026}
 
 \begin{document}
 \maketitle
@@ -124,7 +124,7 @@ Mergesort requires an auxiliary buffer for its merge steps, meaning it uses more
 \end{figure}
 
 \section{Discussion and Limitations}
-Our results show that achieving large parallel speedups on these sorting algorithms is more difficult in practice than the theoretical model suggests. The sequential portions of both algorithms (the top-level merge in mergesort and the top-level partition in quicksort) place a hard ceiling on speedup that task-based parallelism alone cannot remove. Surpassing the observed 2x limit would require parallelizing these steps directly, which introduces extra complexity.
+Our results show that achieving large parallel speedups on these sorting algorithms is more difficult in practice than the theoretical model suggests. The sequential portions of both algorithms (the top-level merge in mergesort and the top-level partition in quicksort) place a hard ceiling on speedup that task-based parallelism alone cannot remove. Surpassing the observed $2\times$ limit would require parallelizing these steps directly, which introduces extra complexity.
 
 Additionally, here are some limitations of our approach worth noting:
 \begin{itemize}
