@@ -1,3 +1,5 @@
+// quicksort.cpp — sequential and parallel quicksort for float arrays.
+
 #include <iostream>
 #include <vector>
 #include <thread>
@@ -13,23 +15,12 @@
 
 using namespace std;
 
-// Sequential fallback threshold: subarrays below this switch to sequential.
-const int THRESHOLD = 10000;
+const int THRESHOLD           = 10000; // subarray size below which parallel falls back to sequential
+const int INSERTION_THRESHOLD = 32;    // subarray size below which we use insertion sort
 
-// Insertion-sort threshold: subarrays this small use insertion sort directly.
-// At ~32 elements the branch-predictor and cache locality of insertion sort
-// outweigh the overhead of recursive partitioning. This is the same strategy
-// used by std::sort (introsort) and Java's Arrays.sort (timsort).
-const int INSERTION_THRESHOLD = 32;
-
-// Global comparison counter.
 atomic<unsigned long long> comparisons{0};
 
-// ---------------------------------------------------------------------------
-// Insertion sort — used as the base case for small subarrays.
-// O(N^2) worst-case but cache-optimal; faster than quicksort for N < ~32
-// because it has zero recursion overhead and accesses memory sequentially.
-// ---------------------------------------------------------------------------
+// Simple O(N^2) sort; faster than quicksort for very small subarrays.
 void insertionSort(vector<float>& arr, int low, int high) {
     unsigned long long local_cmp = 0;
     for (int i = low + 1; i <= high; i++) {
@@ -45,81 +36,36 @@ void insertionSort(vector<float>& arr, int low, int high) {
     comparisons += local_cmp;
 }
 
-// ---------------------------------------------------------------------------
-// Median-of-three on RANDOM samples.
-//
-// We pick three positions at random rather than always using low/mid/high.
-// This breaks the adversarial structure of sorted and reverse-sorted inputs:
-//   - Pure median-of-three (low/mid/high) on a sorted array always picks
-//     arr[mid] as pivot, giving an O(N^1.5) comparison count because every
-//     level has a 2:1 split instead of 1:1 (the sub-problems are still
-//     sorted, so the next level also picks a 2:1 pivot, and so on).
-//   - With random samples, the probability of consistently poor pivots on
-//     any structured input is O(1/N), giving O(N log N) expected comparisons.
-//
-// The srand()/rand() call is intentionally NOT seeded per-call; we seed once
-// in main() with a fixed seed for reproducibility across benchmark runs.
-// ---------------------------------------------------------------------------
+// Picks a pivot as the median of three randomly chosen elements.
+// Random sampling avoids worst-case behavior on sorted/reverse-sorted input.
 float medianOfThree(vector<float>& arr, int low, int high) {
     if (high - low < 2) return arr[low];
     int range = high - low + 1;
-    int a = low  + rand() % range;
-    int b = low  + rand() % range;
-    int c = low  + rand() % range;
-    // Sort the three sampled positions in place so arr[b] is the median.
+    int a = low + rand() % range;
+    int b = low + rand() % range;
+    int c = low + rand() % range;
     if (arr[a] > arr[b]) swap(arr[a], arr[b]);
     if (arr[a] > arr[c]) swap(arr[a], arr[c]);
     if (arr[b] > arr[c]) swap(arr[b], arr[c]);
-    return arr[b];  // median value (elements at a, b, c now sorted by value)
+    return arr[b];
 }
 
-// ---------------------------------------------------------------------------
-// Three-way partition (Dutch National Flag algorithm).
-//
-// Returns {lt, gt} such that after the call:
-//   arr[low..lt-1]  < pivot   (recurse left)
-//   arr[lt..gt]    == pivot   (DONE — never recurse on equal region)
-//   arr[gt+1..high] > pivot   (recurse right)
-//
-// WHY THREE-WAY over standard Hoare partition:
-//   On data with many duplicates (same_value, repeated_values) the equal
-//   region can be O(N) elements, so those N elements are sorted in O(1)
-//   additional work instead of being re-partitioned O(log N) more times.
-//   This gives O(N) total comparisons on all-equal input and a significant
-//   constant-factor improvement on any low-entropy distribution.
-//   On uniform random data the performance is identical to Hoare partition.
-//
-// This is the partition scheme used by Java's Arrays.sort (dual-pivot quicksort)
-// and by pdqsort (the algorithm behind Rust's sort_unstable and C++20 ranges::sort).
-// ---------------------------------------------------------------------------
+// Dutch National Flag partition: splits into <pivot, ==pivot, >pivot regions.
+// Equal elements are never revisited, which helps on low-entropy data.
 pair<int, int> partition3way(vector<float>& arr, int low, int high) {
     float pivot = medianOfThree(arr, low, high);
-    int lt = low;    // arr[low..lt-1]  < pivot
-    int gt = high;   // arr[gt+1..high] > pivot
-    int i  = low;    // current element
-
+    int lt = low, gt = high, i = low;
     unsigned long long local_cmp = 0;
-
     while (i <= gt) {
         local_cmp++;
-        if (arr[i] < pivot) {
-            swap(arr[lt++], arr[i++]);
-        } else {
-            local_cmp++;
-            if (arr[i] > pivot) {
-                swap(arr[i], arr[gt--]);
-                // Do NOT advance i: the element swapped from arr[gt] is unexamined.
-            } else {
-                i++;   // arr[i] == pivot
-            }
-        }
+        if (arr[i] < pivot)      { swap(arr[lt++], arr[i++]); }
+        else if (arr[i] > pivot) { local_cmp++; swap(arr[i], arr[gt--]); }
+        else                     { i++; }
     }
-
     comparisons += local_cmp;
     return {lt, gt};
 }
 
-// Sequential quicksort (three-way partition + insertion-sort base case).
 void quicksortSequential(vector<float>& arr, int low, int high) {
     if (high - low < INSERTION_THRESHOLD) {
         if (low < high) insertionSort(arr, low, high);
@@ -130,20 +76,8 @@ void quicksortSequential(vector<float>& arr, int low, int high) {
     quicksortSequential(arr, gt + 1, high);
 }
 
-// ---------------------------------------------------------------------------
-// Parallel quicksort with thread budget.
-//
-// PARALLELISM STRATEGY — raw std::thread with static budget halving:
-//   We chose std::thread over OpenMP because it makes the parallelism model
-//   explicit and transparent for analysis. OpenMP task scheduling would adapt
-//   to skewed partitions automatically (work stealing), but would hide the
-//   overhead structure we want to measure.
-//
-// LIMITATION: Budget halving assigns equal threads to both partitions
-//   regardless of their size. With three-way partition the left and right
-//   regions are typically unequal, so one thread may be idle while the other
-//   has work. This is the fundamental motivation for work-stealing schedulers.
-// ---------------------------------------------------------------------------
+// Spawns a thread for the left partition; runs the right partition on the current thread.
+// Thread budget is halved at each level; falls back to sequential when budget is exhausted.
 void quicksortParallel(vector<float>& arr, int low, int high, int threads) {
     if (high - low < INSERTION_THRESHOLD) {
         if (low < high) insertionSort(arr, low, high);
@@ -153,14 +87,9 @@ void quicksortParallel(vector<float>& arr, int low, int high, int threads) {
         quicksortSequential(arr, low, high);
         return;
     }
-
     auto [lt, gt] = partition3way(arr, low, high);
-
-    int left_threads  = threads / 2;
-    int right_threads = threads - left_threads;
-
-    thread t1(quicksortParallel, ref(arr), low,    lt - 1, left_threads);
-    quicksortParallel(arr, gt + 1, high, right_threads);
+    thread t1(quicksortParallel, ref(arr), low, lt - 1, threads / 2);
+    quicksortParallel(arr, gt + 1, high, threads - threads / 2);
     t1.join();
 }
 
@@ -188,9 +117,7 @@ int main(int argc, char* argv[]) {
     string mode     = argv[2];
     int num_threads = stoi(argv[3]);
 
-    // Fixed seed for reproducibility — random pivot selection in medianOfThree
-    // uses rand() seeded here so results are identical across runs.
-    srand(42);
+    srand(42); // fixed seed for reproducible pivot selection
 
     vector<float> arr;
     ifstream file(filename);
@@ -205,7 +132,6 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // NaN / Inf guard — both break strict-weak-ordering in std::sort.
     for (int idx = 0; idx < n; idx++) {
         if (isnan(arr[idx]) || isinf(arr[idx])) {
             cerr << "Error: NaN or Inf at index " << idx << "\n";

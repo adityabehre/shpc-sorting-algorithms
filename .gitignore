@@ -1,14 +1,8 @@
-# ── Large dataset (do NOT push) ──────────────────────────────────────────────
-benchmark-dataset-for-sorting-algorithms/
-
-# ── Compiled binaries ─────────────────────────────────────────────────────────
 mergesort
 quicksort
 
-# ── Python virtual environment ────────────────────────────────────────────────
 venv/
 __pycache__/
 *.pyc
 
-# ── macOS noise ───────────────────────────────────────────────────────────────
 .DS_Store
